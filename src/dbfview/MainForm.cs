@@ -1,4 +1,5 @@
 using System.Data;
+using System.Reflection;
 using System.Text;
 
 namespace dbfview;
@@ -122,6 +123,8 @@ public class MainForm : Form
             VirtualMode = false,
             BackgroundColor = SystemColors.Window
         };
+        typeof(DataGridView).GetProperty("DoubleBuffered",
+            BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(_grid, true);
         _grid.CellValidating += Grid_CellValidating;
         _grid.CellValueChanged += Grid_CellValueChanged;
         _grid.RowPrePaint += Grid_RowPrePaint;
@@ -387,17 +390,6 @@ public class MainForm : Form
 
         if (e.RowIndex < _view.Count)
         {
-            var rowView = _view[e.RowIndex];
-            var deleted = rowView.Row["_deleted"] is bool d && d;
-            if (deleted)
-            {
-                _grid.Rows[e.RowIndex].DefaultCellStyle.ForeColor = Color.Gray;
-            }
-            else
-            {
-                _grid.Rows[e.RowIndex].DefaultCellStyle.ForeColor = SystemColors.ControlText;
-            }
-
             _grid.Rows[e.RowIndex].HeaderCell!.Value = (e.RowIndex + 1).ToString();
         }
     }
@@ -408,10 +400,13 @@ public class MainForm : Form
         if (_view == null || e.RowIndex >= _view.Count) return;
 
         var rowView = _view[e.RowIndex];
-        var deleted = rowView.Row["_deleted"] is bool d && d;
-        if (deleted)
+        if (rowView.Row["_deleted"] is bool deleted && deleted)
         {
             e.CellStyle!.ForeColor = Color.Gray;
+        }
+        else if (e.CellStyle!.ForeColor == Color.Gray)
+        {
+            e.CellStyle.ForeColor = _grid.DefaultCellStyle.ForeColor;
         }
     }
 

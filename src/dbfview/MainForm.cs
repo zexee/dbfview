@@ -171,9 +171,9 @@ public class MainForm : Form
             _data = DbfHelper.Load(path, _encoding);
             _view = new DataView(_data);
             _filePath = path;
-            _modified = false;
 
             BindGrid();
+            _modified = false;
             AutoFitContent();
             UpdateStatus();
             Text = $"dbfview - {Path.GetFileName(path)}";

@@ -26,8 +26,8 @@ public class MainForm : Form
     private DataGridView _grid = null!;
     private StatusStrip _status = null!;
     private ToolStripStatusLabel _lblCount = null!;
-    private ToolStripStatusLabel _lblFiltered = null!;
     private ToolStripStatusLabel _lblEncoding = null!;
+    private ToolStripStatusLabel _lblCell = null!;
     private ToolStripStatusLabel _lblPath = null!;
 
     public MainForm(string? openFile = null)
@@ -134,15 +134,16 @@ public class MainForm : Form
         _grid.RowPrePaint += Grid_RowPrePaint;
         _grid.CellFormatting += Grid_CellFormatting;
         _grid.CellToolTipTextNeeded += Grid_CellToolTipTextNeeded;
+        _grid.SelectionChanged += Grid_SelectionChanged;
         _grid.KeyDown += Grid_KeyDown;
 
         // Status bar
         _status = new StatusStrip();
         _lblCount = new ToolStripStatusLabel("就绪") { BorderSides = ToolStripStatusLabelBorderSides.Right };
-        _lblFiltered = new ToolStripStatusLabel("") { BorderSides = ToolStripStatusLabelBorderSides.Right };
         _lblEncoding = new ToolStripStatusLabel("GBK") { BorderSides = ToolStripStatusLabelBorderSides.Right };
-        _lblPath = new ToolStripStatusLabel("");
-        _status.Items.AddRange(new ToolStripItem[] { _lblCount, _lblFiltered, _lblEncoding, _lblPath });
+        _lblCell = new ToolStripStatusLabel("") { BorderSides = ToolStripStatusLabelBorderSides.Right, Spring = true, TextAlign = ContentAlignment.MiddleLeft };
+        _lblPath = new ToolStripStatusLabel("") { Alignment = ToolStripItemAlignment.Right };
+        _status.Items.AddRange(new ToolStripItem[] { _lblCount, _lblEncoding, _lblCell, _lblPath });
 
         // Layout
         Controls.Add(_grid);
@@ -421,16 +422,27 @@ public class MainForm : Form
         if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
         if (_grid.Columns[e.ColumnIndex].Name is "_deleted" or "_row") return;
 
-        var value = _grid[e.ColumnIndex, e.RowIndex].Value;
-        if (value == null || value == DBNull.Value) return;
-
-        var text = value.ToString();
-        if (string.IsNullOrEmpty(text)) return;
-
-        var textWidth = TextRenderer.MeasureText(text, _grid.Font).Width;
-        var col = _grid.Columns[e.ColumnIndex];
-        if (textWidth > col.Width - col.DividerWidth - 8)
+        var text = _grid[e.ColumnIndex, e.RowIndex].Value?.ToString();
+        if (!string.IsNullOrEmpty(text))
             e.ToolTipText = text;
+    }
+
+    private void Grid_SelectionChanged(object? sender, EventArgs e)
+    {
+        if (_grid.CurrentCell == null)
+        {
+            _lblCell.Text = "";
+            return;
+        }
+
+        if (_grid.Columns[_grid.CurrentCell.ColumnIndex].Name is "_deleted" or "_row")
+        {
+            _lblCell.Text = "";
+            return;
+        }
+
+        var text = _grid.CurrentCell.Value?.ToString();
+        _lblCell.Text = text ?? "";
     }
 
     // ─── Status ─────────────────────────────────────────────────
@@ -440,7 +452,6 @@ public class MainForm : Form
         if (_data == null)
         {
             _lblCount.Text = "就绪";
-            _lblFiltered.Text = "";
             _lblEncoding.Text = "";
             _lblPath.Text = "";
             return;
@@ -451,8 +462,7 @@ public class MainForm : Form
             ? _view.Count
             : total;
 
-        _lblCount.Text = $"共 {total} 条";
-        _lblFiltered.Text = filtered != total ? $"已筛选: {filtered} 条" : "";
+        _lblCount.Text = filtered != total ? $"共 {total} 条，已筛选 {filtered}" : $"共 {total} 条";
         _lblEncoding.Text = _encoding.Equals(Encoding.UTF8) ? "UTF-8" : "GBK";
         _lblPath.Text = _filePath ?? "";
     }

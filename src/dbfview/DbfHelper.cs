@@ -13,7 +13,12 @@ public static class DbfHelper
 
     public static Encoding DetectEncoding(string path)
     {
-        var bytes = File.ReadAllBytes(path);
+        byte[] bytes;
+        using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            bytes = new byte[fs.Length];
+            fs.ReadExactly(bytes);
+        }
         if (bytes.Length < 32) return Encoding.GetEncoding("gbk");
 
         if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
@@ -49,7 +54,7 @@ public static class DbfHelper
 
     public static DataTable Load(string path, Encoding enc)
     {
-        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var reader = new BinaryReader(fs);
         
         var version = reader.ReadByte();          // 0

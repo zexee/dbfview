@@ -11,7 +11,6 @@ public class MainForm : Form
     private DataView? _view;
     private Encoding _encoding = Encoding.GetEncoding("gbk");
     private string? _filePath;
-    private bool _modified;
 
     // Controls
     private MenuStrip _menu = null!;
@@ -43,6 +42,7 @@ public class MainForm : Form
     private void InitializeComponent()
     {
         Text = "dbfview";
+        try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
         Size = new Size(1000, 650);
         MinimumSize = new Size(600, 400);
         KeyPreview = true;
@@ -81,10 +81,12 @@ public class MainForm : Form
         };
         _toolbar.Items.Add(_encodingCombo);
 
-        _btnOpen = new ToolStripButton("打开", null, (_, _) => OpenFile());
+        _btnOpen = new ToolStripButton("打开", CreateOpenIcon(), (_, _) => OpenFile());
+        _btnOpen.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
         _toolbar.Items.Add(_btnOpen);
 
-        _btnSave = new ToolStripButton("保存", null, (_, _) => SaveFile());
+        _btnSave = new ToolStripButton("保存", CreateSaveIcon(), (_, _) => SaveFile());
+        _btnSave.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
         _toolbar.Items.Add(_btnSave);
 
         _toolbar.Items.Add(new ToolStripSeparator());
@@ -126,7 +128,6 @@ public class MainForm : Form
         typeof(DataGridView).GetProperty("DoubleBuffered",
             BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(_grid, true);
         _grid.CellValidating += Grid_CellValidating;
-        _grid.CellValueChanged += Grid_CellValueChanged;
         _grid.RowPrePaint += Grid_RowPrePaint;
         _grid.CellFormatting += Grid_CellFormatting;
         _grid.KeyDown += Grid_KeyDown;
@@ -173,7 +174,7 @@ public class MainForm : Form
             _filePath = path;
 
             BindGrid();
-            _modified = false;
+            _data.AcceptChanges();
             AutoFitContent();
             UpdateStatus();
             Text = $"dbfview - {Path.GetFileName(path)}";
@@ -197,12 +198,17 @@ public class MainForm : Form
             if (dlg.ShowDialog() != DialogResult.OK) return;
             _filePath = dlg.FileName;
         }
+        else
+        {
+            var result = MessageBox.Show($"确认覆盖 {Path.GetFileName(_filePath)}？", "保存",
+                MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+            if (result != DialogResult.OK) return;
+        }
 
         try
         {
             _data.AcceptChanges();
             DbfHelper.Save(_filePath, _data, _encoding);
-            _modified = false;
             UpdateStatus();
         }
         catch (Exception ex)
@@ -354,12 +360,6 @@ public class MainForm : Form
         }
     }
 
-    private void Grid_CellValueChanged(object? sender, DataGridViewCellEventArgs e)
-    {
-        if (e.RowIndex < 0) return;
-        _modified = true;
-    }
-
     // ─── Delete mark ────────────────────────────────────────────
 
     private void Grid_KeyDown(object? sender, KeyEventArgs e)
@@ -379,7 +379,6 @@ public class MainForm : Form
         var row = rowView.Row;
         var current = row["_deleted"] is bool deleted && deleted;
         row["_deleted"] = !current;
-        _modified = true;
         _grid.InvalidateRow(_grid.CurrentRow.Index);
     }
 
@@ -446,7 +445,7 @@ public class MainForm : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (_modified)
+        if (_data?.GetChanges() != null)
         {
             var result = MessageBox.Show("文件已修改，是否保存？", "dbfview",
                 MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
@@ -454,5 +453,43 @@ public class MainForm : Form
             else if (result == DialogResult.Cancel) e.Cancel = true;
         }
         base.OnFormClosing(e);
+    }
+
+    private static Image CreateOpenIcon()
+    {
+        var bmp = new Bitmap(16, 16);
+        using var g = Graphics.FromImage(bmp);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        // Folder body
+        g.FillRectangle(Brushes.Gold, 1, 4, 14, 11);
+        // Folder tab
+        var tab = new Point[] { new(1, 6), new(1, 3), new(7, 3), new(7, 6) };
+        g.FillPolygon(Brushes.Gold, tab);
+        // Outline
+        g.DrawLine(Pens.DarkGoldenrod, 1, 6, 1, 15);
+        g.DrawLine(Pens.DarkGoldenrod, 1, 15, 14, 15);
+        g.DrawLine(Pens.DarkGoldenrod, 14, 15, 14, 4);
+        g.DrawLine(Pens.DarkGoldenrod, 14, 4, 7, 4);
+        g.DrawLine(Pens.DarkGoldenrod, 7, 4, 7, 3);
+        g.DrawLine(Pens.DarkGoldenrod, 7, 3, 1, 3);
+        g.DrawLine(Pens.DarkGoldenrod, 1, 3, 1, 6);
+        return bmp;
+    }
+
+    private static Image CreateSaveIcon()
+    {
+        var bmp = new Bitmap(16, 16);
+        using var g = Graphics.FromImage(bmp);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        // Disk body
+        g.FillRectangle(Brushes.SteelBlue, 2, 1, 12, 14);
+        // Label area (white)
+        g.FillRectangle(Brushes.White, 5, 3, 6, 6);
+        // Shutter
+        g.FillRectangle(Brushes.SlateGray, 5, 12, 6, 2);
+        // Outline
+        g.DrawRectangle(Pens.DarkBlue, 2, 1, 12, 14);
+        g.DrawRectangle(Pens.DarkBlue, 5, 3, 6, 6);
+        return bmp;
     }
 }

@@ -13,33 +13,35 @@ public static class DbfHelper
 
     public static Encoding DetectEncoding(string path)
     {
-        byte[] bytes;
-        using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-        {
-            bytes = new byte[fs.Length];
-            fs.ReadExactly(bytes);
-        }
-        if (bytes.Length < 32) return Encoding.GetEncoding("gbk");
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        if (fs.Length < 32) return Encoding.GetEncoding("gbk");
 
-        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+        var header = new byte[32];
+        fs.ReadExactly(header);
+
+        if (header[0] == 0xEF && header[1] == 0xBB && header[2] == 0xBF)
             return Encoding.UTF8;
 
-        var headerLength = BitConverter.ToInt16(bytes, 8);
-        if (headerLength <= 32 || headerLength > bytes.Length) return Encoding.GetEncoding("gbk");
+        var headerLength = BitConverter.ToInt16(header, 8);
+        if (headerLength <= 32 || headerLength > fs.Length) return Encoding.GetEncoding("gbk");
+
+        var fieldAreaLen = headerLength - 32;
+        var fieldArea = new byte[fieldAreaLen];
+        fs.ReadExactly(fieldArea);
 
         var fieldCount = (headerLength - 33) / 32;
         var utf8 = Encoding.UTF8;
 
         for (var i = 0; i < fieldCount; i++)
         {
-            var offset = 32 + i * 32;
-            var nullPos = Array.IndexOf(bytes, (byte)0, offset, 11);
+            var offset = i * 32;
+            var nullPos = Array.IndexOf(fieldArea, (byte)0, offset, 11);
             var nameLen = nullPos >= 0 ? nullPos - offset : 11;
             if (nameLen <= 0) continue;
 
             try
             {
-                var text = utf8.GetString(bytes, offset, nameLen);
+                var text = utf8.GetString(fieldArea, offset, nameLen);
                 if (text.Contains('\uFFFD'))
                     return Encoding.GetEncoding("gbk");
             }

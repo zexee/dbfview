@@ -133,6 +133,7 @@ public class MainForm : Form
         _grid.CellValidating += Grid_CellValidating;
         _grid.RowPrePaint += Grid_RowPrePaint;
         _grid.CellFormatting += Grid_CellFormatting;
+        _grid.CellToolTipTextNeeded += Grid_CellToolTipTextNeeded;
         _grid.KeyDown += Grid_KeyDown;
 
         // Status bar
@@ -411,6 +412,23 @@ public class MainForm : Form
         {
             e.CellStyle.ForeColor = _grid.DefaultCellStyle.ForeColor;
         }
+    }
+
+    private void Grid_CellToolTipTextNeeded(object? sender, DataGridViewCellToolTipTextNeededEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+        if (_grid.Columns[e.ColumnIndex].Name is "_deleted" or "_row") return;
+
+        var value = _grid[e.ColumnIndex, e.RowIndex].Value;
+        if (value == null || value == DBNull.Value) return;
+
+        var text = value.ToString();
+        if (string.IsNullOrEmpty(text)) return;
+
+        var textWidth = TextRenderer.MeasureText(text, _grid.Font).Width;
+        var col = _grid.Columns[e.ColumnIndex];
+        if (textWidth > col.Width - col.DividerWidth - 8)
+            e.ToolTipText = text;
     }
 
     // ─── Status ─────────────────────────────────────────────────

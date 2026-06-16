@@ -1,6 +1,7 @@
 using System.Data;
 using System.Reflection;
 using System.Text;
+using dbfview.Readers;
 
 namespace dbfview;
 
@@ -9,6 +10,7 @@ public class MainForm : Form
     // Data
     private DataTable? _data;
     private DataView? _view;
+    private IFileReader? _reader;
     private Encoding _encoding = Encoding.GetEncoding("gbk");
     private string? _filePath;
 
@@ -16,6 +18,9 @@ public class MainForm : Form
     private MenuStrip _menu = null!;
     private ToolStrip _toolbar = null!;
     private ToolStripComboBox _encodingCombo = null!;
+    private ToolStripSeparator _csvSep = null!;
+    private ToolStripComboBox _delimiterCombo = null!;
+    private ToolStripButton _btnHeader = null!;
     private ToolStripTextBox _filterBox = null!;
     private ToolStripButton _btnOpen = null!;
     private ToolStripButton _btnSave = null!;
@@ -36,10 +41,12 @@ public class MainForm : Form
     {
         InitializeComponent();
         _encodingCombo.SelectedIndex = 0;
+        UpdateCsvControls();
 
         if (openFile != null && File.Exists(openFile))
         {
-            _encoding = DbfHelper.DetectEncoding(openFile);
+            _reader = CreateReader(openFile);
+            _encoding = _reader.DetectEncoding(openFile);
             LoadFile(openFile);
         }
     }
@@ -64,6 +71,9 @@ public class MainForm : Form
         var viewMenu = new ToolStripMenuItem("查看(&V)");
         viewMenu.DropDownItems.Add("适配内容", null, (_, _) => AutoFitContent());
         viewMenu.DropDownItems.Add("适配窗口", null, (_, _) => FitToWindow());
+        viewMenu.DropDownItems.Add(new ToolStripSeparator());
+        var headerItem = new ToolStripMenuItem("首行作为表头", null, (_, _) => ToggleHeader());
+        viewMenu.DropDownItems.Add(headerItem);
         _menu.Items.Add(viewMenu);
 
         // Toolbar
@@ -85,6 +95,23 @@ public class MainForm : Form
                 LoadFile(_filePath);
         };
         _toolbar.Items.Add(_encodingCombo);
+
+        _csvSep = new ToolStripSeparator();
+        _toolbar.Items.Add(_csvSep);
+
+        _toolbar.Items.Add(new ToolStripLabel("分隔符:"));
+        _delimiterCombo = new ToolStripComboBox();
+        _delimiterCombo.Items.AddRange([",", ";", "Tab", "空格", "|"]);
+        _delimiterCombo.SelectedIndex = 0;
+        _delimiterCombo.Width = 60;
+        _delimiterCombo.SelectedIndexChanged += Delimiter_Changed;
+        _toolbar.Items.Add(_delimiterCombo);
+
+        _btnHeader = new ToolStripButton("☑ 首行表头", null, (_, _) => ToggleHeader());
+        _btnHeader.DisplayStyle = ToolStripItemDisplayStyle.Text;
+        _toolbar.Items.Add(_btnHeader);
+
+        _toolbar.Items.Add(new ToolStripSeparator());
 
         _btnOpen = new ToolStripButton("打开", CreateOpenIcon(), (_, _) => OpenFile());
         _btnOpen.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
@@ -158,19 +185,63 @@ public class MainForm : Form
         MainMenuStrip = _menu;
     }
 
+    // ─── Format helpers ──────────────────────────────────────────
+
+    private static IFileReader CreateReader(string path)
+    {
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        return ext == ".csv" ? new CsvReader() : new DbfReader();
+    }
+
+    private void UpdateCsvControls()
+    {
+        var isCsv = _reader is CsvReader;
+        _csvSep.Visible = isCsv;
+        _delimiterCombo.Visible = isCsv;
+        _btnHeader.Visible = isCsv;
+        if (isCsv)
+        {
+            var csv = (CsvReader)_reader!;
+            _btnHeader.Text = csv.FirstRowAsHeader ? "☑ 首行表头" : "☐ 首行表头";
+        }
+    }
+
+    private void ToggleHeader()
+    {
+        if (_reader is not CsvReader csv) return;
+        csv.FirstRowAsHeader = !csv.FirstRowAsHeader;
+        _btnHeader.Text = csv.FirstRowAsHeader ? "☑ 首行表头" : "☐ 首行表头";
+        if (_filePath != null) LoadFile(_filePath);
+    }
+
+    private void Delimiter_Changed(object? sender, EventArgs e)
+    {
+        if (_reader is not CsvReader csv) return;
+        csv.Delimiter = _delimiterCombo.Text switch
+        {
+            "Tab" => '\t',
+            "空格" => ' ',
+            "|" => '|',
+            ";" => ';',
+            _ => ','
+        };
+        if (_filePath != null) LoadFile(_filePath);
+    }
+
     // ─── File operations ────────────────────────────────────────
 
     private void OpenFile()
     {
         using var dlg = new OpenFileDialog
         {
-            Filter = "DBF 文件|*.dbf|所有文件|*.*",
-            Title = "打开 DBF 文件"
+            Filter = "DBF 文件|*.dbf|CSV 文件|*.csv|所有文件|*.*",
+            Title = "打开文件"
         };
         if (dlg.ShowDialog() != DialogResult.OK) return;
 
-        var detected = DbfHelper.DetectEncoding(dlg.FileName);
-        _encoding = detected;
+        _reader = CreateReader(dlg.FileName);
+        _encoding = _reader.DetectEncoding(dlg.FileName);
+        UpdateCsvControls();
         LoadFile(dlg.FileName);
     }
 
@@ -178,9 +249,10 @@ public class MainForm : Form
     {
         try
         {
+            _reader ??= CreateReader(path);
             _encodingCombo.SelectedIndex = _encoding.Equals(Encoding.UTF8) ? 1 : 0;
 
-            _data = DbfHelper.Load(path, _encoding);
+            _data = _reader.Read(path, _encoding);
             _view = new DataView(_data);
             _filePath = path;
 
@@ -200,7 +272,7 @@ public class MainForm : Form
 
     private void SaveFile()
     {
-        if (_data == null) return;
+        if (_data == null || _reader == null || !_reader.SupportsSave) return;
         if (_filePath == null)
         {
             using var dlg = new SaveFileDialog
@@ -326,12 +398,10 @@ public class MainForm : Form
         var dataCols = _grid.Columns.Cast<DataGridViewColumn>()
             .Where(c => c.Name != "_deleted" && c.Name != "_row").ToList();
 
-        // Save original widths
         var originalWidths = dataCols.Select(c => c.Width).ToArray();
         var totalOriginal = originalWidths.Sum();
         if (totalOriginal == 0) return;
 
-        // Let Fill mode determine exact available width
         _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
         foreach (var col in dataCols)
         {
@@ -343,7 +413,6 @@ public class MainForm : Form
         var fillTotal = dataCols.Sum(c => c.Width);
         var ratio = (double)fillTotal / totalOriginal;
 
-        // Lock widths with proportional scaling
         _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
         for (var i = 0; i < dataCols.Count; i++)
         {
@@ -388,6 +457,7 @@ public class MainForm : Form
     private void ToggleDeleteMark()
     {
         if (_grid.CurrentRow == null || _data == null) return;
+        if (!_data.Columns.Contains("_deleted")) return;
         if (_grid.CurrentRow.DataBoundItem is not DataRowView rowView) return;
         var row = rowView.Row;
         var current = row["_deleted"] is bool deleted && deleted;
@@ -410,6 +480,7 @@ public class MainForm : Form
     {
         if (_data == null || e.RowIndex < 0) return;
         if (_view == null || e.RowIndex >= _view.Count) return;
+        if (!_data.Columns.Contains("_deleted")) return;
 
         var rowView = _view[e.RowIndex];
         if (rowView.Row["_deleted"] is bool deleted && deleted)
@@ -481,7 +552,8 @@ public class MainForm : Form
             : total;
 
         _lblCount.Text = filtered != total ? $"共 {total} 条，已筛选 {filtered}" : $"共 {total} 条";
-        _lblEncoding.Text = _encoding.Equals(Encoding.UTF8) ? "UTF-8" : "GBK";
+        var encName = _encoding.Equals(Encoding.UTF8) ? "UTF-8" : "GBK";
+        _lblEncoding.Text = _reader != null ? $"{_reader.FormatName} / {encName}" : encName;
         _lblPath.Text = _filePath ?? "";
     }
 
@@ -497,7 +569,7 @@ public class MainForm : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (_data?.GetChanges() != null)
+        if (_reader?.SupportsSave == true && _data?.GetChanges() != null)
         {
             var result = MessageBox.Show("文件已修改，是否保存？", "dbfview",
                 MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
@@ -512,12 +584,9 @@ public class MainForm : Form
         var bmp = new Bitmap(16, 16);
         using var g = Graphics.FromImage(bmp);
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        // Folder body
         g.FillRectangle(Brushes.Gold, 1, 4, 14, 11);
-        // Folder tab
         var tab = new Point[] { new(1, 6), new(1, 3), new(7, 3), new(7, 6) };
         g.FillPolygon(Brushes.Gold, tab);
-        // Outline
         g.DrawLine(Pens.DarkGoldenrod, 1, 6, 1, 15);
         g.DrawLine(Pens.DarkGoldenrod, 1, 15, 14, 15);
         g.DrawLine(Pens.DarkGoldenrod, 14, 15, 14, 4);
@@ -533,13 +602,9 @@ public class MainForm : Form
         var bmp = new Bitmap(16, 16);
         using var g = Graphics.FromImage(bmp);
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        // Disk body
         g.FillRectangle(Brushes.SteelBlue, 2, 1, 12, 14);
-        // Label area (white)
         g.FillRectangle(Brushes.White, 5, 3, 6, 6);
-        // Shutter
         g.FillRectangle(Brushes.SlateGray, 5, 12, 6, 2);
-        // Outline
         g.DrawRectangle(Pens.DarkBlue, 2, 1, 12, 14);
         g.DrawRectangle(Pens.DarkBlue, 5, 3, 6, 6);
         return bmp;

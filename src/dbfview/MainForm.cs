@@ -29,6 +29,8 @@ public class MainForm : Form
     private ToolStripStatusLabel _lblEncoding = null!;
     private ToolStripStatusLabel _lblCell = null!;
     private ToolStripStatusLabel _lblPath = null!;
+    private ToolTip _tooltip = null!;
+    private int _tipRow = -1, _tipCol = -1;
 
     public MainForm(string? openFile = null)
     {
@@ -126,14 +128,15 @@ public class MainForm : Form
             ReadOnly = false,
             RowHeadersWidth = 40,
             VirtualMode = false,
-            BackgroundColor = SystemColors.Window
+            BackgroundColor = SystemColors.Window,
+            ShowCellToolTips = false
         };
         typeof(DataGridView).GetProperty("DoubleBuffered",
             BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(_grid, true);
         _grid.CellValidating += Grid_CellValidating;
         _grid.RowPrePaint += Grid_RowPrePaint;
         _grid.CellFormatting += Grid_CellFormatting;
-        _grid.CellToolTipTextNeeded += Grid_CellToolTipTextNeeded;
+        _grid.CellMouseEnter += Grid_CellMouseEnter;
         _grid.SelectionChanged += Grid_SelectionChanged;
         _grid.KeyDown += Grid_KeyDown;
 
@@ -144,6 +147,8 @@ public class MainForm : Form
         _lblCell = new ToolStripStatusLabel("") { BorderSides = ToolStripStatusLabelBorderSides.Right, Spring = true, TextAlign = ContentAlignment.MiddleLeft };
         _lblPath = new ToolStripStatusLabel("") { Alignment = ToolStripItemAlignment.Right };
         _status.Items.AddRange(new ToolStripItem[] { _lblCount, _lblEncoding, _lblCell, _lblPath });
+
+        _tooltip = new ToolTip { AutoPopDelay = 5000, InitialDelay = 400 };
 
         // Layout
         Controls.Add(_grid);
@@ -417,14 +422,27 @@ public class MainForm : Form
         }
     }
 
-    private void Grid_CellToolTipTextNeeded(object? sender, DataGridViewCellToolTipTextNeededEventArgs e)
+    private void Grid_CellMouseEnter(object? sender, DataGridViewCellEventArgs e)
     {
         if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
         if (_grid.Columns[e.ColumnIndex].Name is "_deleted" or "_row") return;
 
+        if (e.RowIndex == _tipRow && e.ColumnIndex == _tipCol) return;
+
+        _tooltip.Hide(_grid);
+        _tipRow = _tipCol = -1;
+
         var text = _grid[e.ColumnIndex, e.RowIndex].Value?.ToString();
-        if (!string.IsNullOrEmpty(text))
-            e.ToolTipText = text;
+        if (string.IsNullOrEmpty(text)) return;
+
+        var cellWidth = _grid.Columns[e.ColumnIndex].Width;
+        var textWidth = TextRenderer.MeasureText(text, _grid.Font).Width;
+        if (textWidth <= cellWidth - 6) return;
+
+        var rect = _grid.GetCellDisplayRectangle(e.ColumnIndex, e.RowIndex, false);
+        _tooltip.Show(text, _grid, rect.Left, rect.Top);
+        _tipRow = e.RowIndex;
+        _tipCol = e.ColumnIndex;
     }
 
     private void Grid_SelectionChanged(object? sender, EventArgs e)

@@ -178,9 +178,11 @@ public class MainForm : Form
             _view = new DataView(_data);
             _filePath = path;
 
+            _grid.SuspendLayout();
             BindGrid();
             _data.AcceptChanges();
             AutoFitContent();
+            _grid.ResumeLayout(false);
             UpdateStatus();
             Text = $"dbfview - {Path.GetFileName(path)}";
         }
@@ -300,7 +302,7 @@ public class MainForm : Form
             col.MinimumWidth = 2;
         }
 
-        _grid.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.AllCells);
+        _grid.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.DisplayedCells);
 
         foreach (DataGridViewColumn col in _grid.Columns)
         {

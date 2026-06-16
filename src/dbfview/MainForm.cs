@@ -36,7 +36,10 @@ public class MainForm : Form
         _encodingCombo.SelectedIndex = 0;
 
         if (openFile != null && File.Exists(openFile))
+        {
+            _encoding = DbfHelper.DetectEncoding(openFile);
             LoadFile(openFile);
+        }
     }
 
     private void InitializeComponent()
@@ -158,6 +161,9 @@ public class MainForm : Form
             Title = "打开 DBF 文件"
         };
         if (dlg.ShowDialog() != DialogResult.OK) return;
+
+        var detected = DbfHelper.DetectEncoding(dlg.FileName);
+        _encoding = detected;
         LoadFile(dlg.FileName);
     }
 
@@ -165,9 +171,7 @@ public class MainForm : Form
     {
         try
         {
-            var detected = DbfHelper.DetectEncoding(path);
-            _encoding = detected;
-            _encodingCombo.SelectedIndex = detected.Equals(Encoding.UTF8) ? 1 : 0;
+            _encodingCombo.SelectedIndex = _encoding.Equals(Encoding.UTF8) ? 1 : 0;
 
             _data = DbfHelper.Load(path, _encoding);
             _view = new DataView(_data);

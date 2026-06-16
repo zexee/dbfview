@@ -22,24 +22,29 @@ public static class DbfHelper
         var headerLength = BitConverter.ToInt16(bytes, 8);
         if (headerLength <= 32 || headerLength > bytes.Length) return Encoding.GetEncoding("gbk");
 
-        var fieldArea = new byte[headerLength - 32];
-        Array.Copy(bytes, 32, fieldArea, 0, fieldArea.Length);
-
+        var fieldCount = (headerLength - 33) / 32;
         var utf8 = Encoding.UTF8;
-        try
+
+        for (var i = 0; i < fieldCount; i++)
         {
-            var text = utf8.GetString(fieldArea);
-            for (var i = 0; i < text.Length; i++)
+            var offset = 32 + i * 32;
+            var nullPos = Array.IndexOf(bytes, (byte)0, offset, 11);
+            var nameLen = nullPos >= 0 ? nullPos - offset : 11;
+            if (nameLen <= 0) continue;
+
+            try
             {
-                if (text[i] == '\uFFFD')
+                var text = utf8.GetString(bytes, offset, nameLen);
+                if (text.Contains('\uFFFD'))
                     return Encoding.GetEncoding("gbk");
             }
-            return utf8;
+            catch
+            {
+                return Encoding.GetEncoding("gbk");
+            }
         }
-        catch
-        {
-            return Encoding.GetEncoding("gbk");
-        }
+
+        return utf8;
     }
 
     public static DataTable Load(string path, Encoding enc)

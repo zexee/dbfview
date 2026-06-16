@@ -64,6 +64,7 @@ public class MainForm : Form
         var fileMenu = new ToolStripMenuItem("文件(&F)");
         fileMenu.DropDownItems.Add("打开(&O)...", null, (_, _) => OpenFile());
         fileMenu.DropDownItems.Add("保存(&S)", null, (_, _) => SaveFile());
+        fileMenu.DropDownItems.Add("导出 CSV(&E)...", null, (_, _) => ExportCsv());
         fileMenu.DropDownItems.Add(new ToolStripSeparator());
         fileMenu.DropDownItems.Add("退出(&X)", null, (_, _) => Close());
         _menu.Items.Add(fileMenu);
@@ -121,6 +122,7 @@ public class MainForm : Form
         _btnSave.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
         _toolbar.Items.Add(_btnSave);
 
+        _toolbar.Items.Add(new ToolStripButton("导出 CSV", null, (_, _) => ExportCsv()));
         _toolbar.Items.Add(new ToolStripSeparator());
 
         _toolbar.Items.Add(new ToolStripLabel("过滤:"));
@@ -222,14 +224,7 @@ public class MainForm : Form
     private void Delimiter_Changed(object? sender, EventArgs e)
     {
         if (_reader is not CsvReader csv) return;
-        csv.Delimiter = _delimiterCombo.Text switch
-        {
-            "Tab" => '\t',
-            "空格" => ' ',
-            "|" => '|',
-            ";" => ';',
-            _ => ','
-        };
+        csv.Delimiter = GetDelimiter();
         if (_filePath != null) LoadFile(_filePath);
     }
 
@@ -305,6 +300,71 @@ public class MainForm : Form
         {
             MessageBox.Show($"保存失败:\n{ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+
+    private void ExportCsv()
+    {
+        if (_data == null || _view == null) return;
+
+        using var dlg = new SaveFileDialog
+        {
+            Filter = "CSV 文件|*.csv",
+            Title = "导出 CSV",
+            DefaultExt = ".csv"
+        };
+        if (dlg.ShowDialog() != DialogResult.OK) return;
+
+        var delim = GetDelimiter();
+        var writeHeader = _reader is CsvReader csv ? csv.FirstRowAsHeader : true;
+
+        try
+        {
+            using var writer = new StreamWriter(dlg.FileName, false, _encoding);
+            var cols = _data.Columns.Cast<DataColumn>()
+                .Where(c => c.ColumnName != "_deleted" && c.ColumnName != "_row")
+                .ToList();
+
+            if (writeHeader)
+            {
+                writer.WriteLine(string.Join(delim.ToString(), cols.Select(c => CsvEscape(c.ColumnName, delim))));
+            }
+
+            foreach (DataRowView rowView in _view)
+            {
+                var values = cols.Select(c =>
+                {
+                    var val = rowView[c.ColumnName];
+                    return val == DBNull.Value || val == null ? "" : val.ToString()!;
+                });
+                writer.WriteLine(string.Join(delim.ToString(), values.Select(v => CsvEscape(v, delim))));
+            }
+
+            MessageBox.Show($"已导出 {_view.Count} 条", "导出完成",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"导出失败:\n{ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private char GetDelimiter()
+    {
+        return _delimiterCombo.Text switch
+        {
+            "Tab" => '\t',
+            "空格" => ' ',
+            "|" => '|',
+            ";" => ';',
+            _ => ','
+        };
+    }
+
+    private static string CsvEscape(string value, char delim)
+    {
+        if (value.Contains(delim) || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
+            return $"\"{value.Replace("\"", "\"\"")}\"";
+        return value;
     }
 
     // ─── Grid binding ───────────────────────────────────────────

@@ -190,7 +190,12 @@ public class MainForm : Form
     private static IFileReader CreateReader(string path)
     {
         var ext = Path.GetExtension(path).ToLowerInvariant();
-        return ext == ".csv" ? new CsvReader() : new DbfReader();
+        return ext switch
+        {
+            ".csv" => new CsvReader(),
+            ".xlsx" => new ExcelReader(),
+            _ => new DbfReader()
+        };
     }
 
     private void UpdateCsvControls()
@@ -234,7 +239,7 @@ public class MainForm : Form
     {
         using var dlg = new OpenFileDialog
         {
-            Filter = "DBF 文件|*.dbf|CSV 文件|*.csv|所有文件|*.*",
+            Filter = "DBF 文件|*.dbf|CSV 文件|*.csv|Excel 文件|*.xlsx|所有文件|*.*",
             Title = "打开文件"
         };
         if (dlg.ShowDialog() != DialogResult.OK) return;
